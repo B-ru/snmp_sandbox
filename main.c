@@ -50,6 +50,7 @@ typedef struct{
 pack_t*         InitPack();
 pack_t*         FormPack(pack_t*, char*, char*);
 void            AddToPack(pack_t *, unsigned char);
+void            Resize(pack_t*);
 unsigned char   Count(char*, char);
 unsigned char*  RefineOid(char*);
 void            PrintPack(pack_t *);
@@ -66,12 +67,12 @@ int main( int argc, char* argv[]){
     FormPack(my_pack, argv[1], argv[2]);
     printf("request:\n");
     PrintPack(my_pack);
-    //WriteToBin(my_pack,"request.bin");
+    WriteToBin(my_pack, "request.bin");
     socket = CreateSocket();
     response = Request(socket, argv[3], my_pack);
     printf("response:\n");
     PrintPack(response);
-    //WriteToBin(response, "response.bin");
+    WriteToBin(response, "response.bin");
     return 0;
 }
 
@@ -141,7 +142,17 @@ pack_t* FormPack(pack_t *p_pack, char *p_community, char *p_oid){
 }
 ////////////////////////////////////////
 void AddToPack(pack_t *p_pack, unsigned char p_byte){
-    p_pack->bytes[p_pack->top++] = p_byte;
+    if(p_pack->top < p_pack->length){
+        p_pack->bytes[p_pack->top++] = p_byte;
+    } else {
+        Resize(p_pack);
+        AddToPack(p_pack, p_byte);
+    }
+}
+////////////////////////////////////////
+void Resize(pack_t *p_pack){
+    p_pack->bytes = realloc(p_pack->bytes, (p_pack->length + ADDSIZE));
+    p_pack->length = p_pack->length + ADDSIZE;
 }
 ////////////////////////////////////////
 unsigned char Count(char *p_string, char p_c){
@@ -191,7 +202,7 @@ void PrintOid(unsigned char *p_oid){
 ////////////////////////////////////////
 void WriteToBin(pack_t *p_pack, const char *p_filename){
     FILE *outfile = NULL;
-    outfile = fopen(p_filename, "wb+x");
+    outfile = fopen(p_filename, "wb+");
     if(outfile == NULL){
         printf("Error opening file\n");
         exit(FILE_IO_ERROR);
