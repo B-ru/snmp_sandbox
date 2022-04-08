@@ -1,31 +1,3 @@
-/*
-    Программа производит опрос хоста по протоколу SNMPv1.
-    Последовательность аргументов программы:
-            1. community
-            2. OID
-            3. ip
-
-    "Иерархия в пакете"
-        1. контейнер, длиной 2a         30 2a
-        1.1. INTEGER, длиной 01         02 01
-        1.1.1. содержимое элемента      00                                  (version)
-        1.2. OCTET STRING, длиной 06    04 06
-        1.2.1.  содержимое элемента     70 75 62 6с 69 63                   (community)
-        1.3.    DATA, длиной 1d         a0 1d
-        1.3.1.  INTEGER, длиной 02      02 02
-        1.3.1.1.содержимое элемента     00 a5                               (request-id)
-        1.3.2.  INTEGER, длиной 01      02 01
-        1.3.2.1.содержимое элемента     00                                  (error-status)
-        1.3.3.  INTEGER, длиной 01      02 01
-        1.3.3.1.содержимое элемента     00                                  (error-index)
-        1.3.4.  контейнер, длиной 11    30 11
-        1.3.4.1 контейнер, длиной 0f    30 0f
-        1.3.4.1.1.OBJECT IDENTIFIER, длиной 0b       
-                                        06 0b
-        1.3.4.1.1.1.содержимое          2b 06 01 02 01 19 03 02 01 03 01    (modified OID)
-        1.3.4.1.2.NULL, длиной 00       05 00
-        
-*/
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -57,7 +29,9 @@ void            PrintPack(pack_t *);
 void            PrintOid(unsigned char *);
 void            WriteToBin(pack_t *, const char* );
 int             CreateSocket();
-pack_t*         Request(int, char*, pack_t*);
+pack_t*         Request(int, char *, pack_t *);
+unsigned char   GetDataIndex(pack_t *);
+unsigned char   GetRespIndex(pack_t *);
 ////////////////////////////////////////
 
 int main( int argc, char* argv[]){
@@ -73,6 +47,9 @@ int main( int argc, char* argv[]){
     printf("response:\n");
     PrintPack(response);
     WriteToBin(response, "response.bin");
+    printf("Response' Data index is ... %hhu\nResponse' text index is ... %hhu\n", GetDataIndex(response), GetRespIndex(response));
+    for(int i = GetRespIndex(response); i < response->top; i++) printf("%c", response->bytes[i]);
+    printf("\n");
     return 0;
 }
 
@@ -94,7 +71,6 @@ pack_t* InitPack(){
 pack_t* FormPack(pack_t *p_pack, char *p_community, char *p_oid){
     unsigned char *oid = malloc(256 * sizeof(unsigned char));
     oid = RefineOid(p_oid);
-    //unsigned char *template = malloc(256 * sizeof(unsigned char));
     unsigned char sizes_[4];
     int size_counter = 0;
     AddToPack(p_pack, 48);
@@ -202,7 +178,7 @@ void PrintOid(unsigned char *p_oid){
 ////////////////////////////////////////
 void WriteToBin(pack_t *p_pack, const char *p_filename){
     FILE *outfile = NULL;
-    outfile = fopen(p_filename, "wb+");
+    outfile = fopen(p_filename, "wb");
     if(outfile == NULL){
         printf("Error opening file\n");
         exit(FILE_IO_ERROR);
@@ -238,4 +214,18 @@ pack_t* Request(int socket, char *address, pack_t *p_pack ){
     }
     close(socket);
     return response;
+}
+///////////////////////////////////////
+unsigned char GetDataIndex(pack_t *p_pack){
+    return 6 + p_pack->bytes[3] + p_pack->bytes[5 + p_pack->bytes[3]];
+}
+///////////////////////////////////////
+unsigned char GetRespIndex(pack_t *p_pack){
+    unsigned char offset = GetDataIndex( p_pack ), 
+    response_id_length      = p_pack->bytes[offset + 3], 
+    error_status_length     = p_pack->bytes[offset + 3 + response_id_length + 2],
+    error_index_length      = p_pack->bytes[offset + 3 + response_id_length + 2 + error_status_length + 2],
+    response_oid_length     = p_pack->bytes[offset + 3 + response_id_length + 2 + error_status_length + 2 + error_index_length + 6],
+    response_value_length   = p_pack->bytes[offset + 3 + response_id_length + 2 + error_status_length + 2 + error_index_length + 6 + response_oid_length + 2];
+    return offset + 3 + response_id_length + 2 + error_status_length + 2 + error_index_length + 6 + response_oid_length + 3; 
 }
