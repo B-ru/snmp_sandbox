@@ -1,9 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
-#define INITSIZE 44
+#define INITSIZE 8
 #define ADDSIZE  8
 #define PORT    161
 #define MAXLINE 1024
@@ -20,7 +21,6 @@ typedef struct{
 } pack_t;
 //prototypes////////////////////////////
 pack_t*         InitPack();
-pack_t*         FormPack(pack_t*, char*, char*);
 void            AddToPack(pack_t *, unsigned char);
 void            Resize(pack_t*);
 unsigned char   Count(char*, char);
@@ -30,24 +30,27 @@ void            PrintOid(unsigned char *);
 void            WriteToBin(pack_t *, const char* );
 int             CreateSocket();
 pack_t*         Request(int, char *, pack_t *);
-unsigned char   GetDataIndex(pack_t *);
 unsigned char   GetRespIndex(pack_t *);
+pack_t*         PackOid(char *);
+pack_t*         PackNull();
+pack_t*         PackInt(unsigned int);
+pack_t*         PackOctString(char *);
+pack_t*         PackSequence(unsigned char, int num, ...);
+pack_t*         PackSNMPGetRequest(char*, char*);
 ////////////////////////////////////////
 
 int main( int argc, char* argv[]){
-    int socket;
-    pack_t *my_pack = InitPack();
-    pack_t *response = NULL;
-    FormPack(my_pack, argv[1], argv[2]);
-    printf("request:\n");
-    PrintPack(my_pack);
-    WriteToBin(my_pack, "request.bin");
+    pack_t *request = InitPack(), *response = InitPack();
+    int socket = NULL;
+    request =  PackSNMPGetRequest(argv[1],argv[2]);
+    printf(">> ");
+    for(int i = 0; i < request->top; i++) printf("%02X ", request->bytes[i]);
+    printf("\n<< ");
+    WriteToBin(request, "request.bin");
     socket = CreateSocket();
-    response = Request(socket, argv[3], my_pack);
-    printf("response:\n");
-    PrintPack(response);
-    WriteToBin(response, "response.bin");
-    printf("Response' Data index is ... %hhu\nResponse' text index is ... %hhu\n", GetDataIndex(response), GetRespIndex(response));
+    response = Request(socket, argv[3], request);
+    for(int i = 0; i < response->top; i++) printf("%02X ", response->bytes[i]);
+    printf("\n");
     for(int i = GetRespIndex(response); i < response->top; i++) printf("%c", response->bytes[i]);
     printf("\n");
     return 0;
@@ -68,53 +71,74 @@ pack_t* InitPack(){
     return pack;
 }
 ////////////////////////////////////////
-pack_t* FormPack(pack_t *p_pack, char *p_community, char *p_oid){
-    unsigned char *oid = malloc(256 * sizeof(unsigned char));
-    oid = RefineOid(p_oid);
-    unsigned char sizes_[4];
-    int size_counter = 0;
-    AddToPack(p_pack, 48);
-    AddToPack(p_pack, 255);
-    sizes_[size_counter++] = p_pack->top - 1;
-    AddToPack(p_pack, 2);
-    AddToPack(p_pack, 1);
-    AddToPack(p_pack, 0);
-    AddToPack(p_pack, 4);
-    AddToPack(p_pack, Count(p_community,0));
-    for(int i = 0; i < Count(p_community,0); i++){
-        AddToPack(p_pack, p_community[i]);
+/*
+    Length: 3 ways to encode it
+            7 6 5 4 3 2 1 0
+    short   0 [---length--]     * will implement this first
+    long    1 [len-of-len-]
+    indef   0 0 0 0 0 0 0 0     -- value ends with 2 NULL bytes
+*/
+pack_t* PackInt(unsigned int p_value){
+    pack_t *result = InitPack();
+    unsigned char byte_counter = 0;
+    unsigned char *ptr = &p_value;
+    if(p_value & 4278190080)                byte_counter = 4;
+    else if (p_value & 16711680)            byte_counter = 3;
+    else if (p_value & 65280)               byte_counter = 2;
+    else if (p_value & 255 || p_value == 0) byte_counter = 1;
+    AddToPack(result, 2);
+    AddToPack(result, byte_counter & 127);
+    for(unsigned char i = 0; i < byte_counter; i++){
+        AddToPack(result, *(ptr - i - 1 + byte_counter));
     }
-    AddToPack(p_pack, 160);
-    AddToPack(p_pack, 255);
-    sizes_[size_counter++] = p_pack->top - 1;
-    AddToPack(p_pack, 2);
-    AddToPack(p_pack, 2);
-    AddToPack(p_pack, 0);
-    AddToPack(p_pack, 1);
-    AddToPack(p_pack, 2);
-    AddToPack(p_pack, 1);
-    AddToPack(p_pack, 0);
-    AddToPack(p_pack, 2);
-    AddToPack(p_pack, 1);
-    AddToPack(p_pack, 0);
-    AddToPack(p_pack, 48);
-    AddToPack(p_pack, 255);
-    sizes_[size_counter++] = p_pack->top - 1;
-    AddToPack(p_pack, 48);
-    AddToPack(p_pack, 255);
-    sizes_[size_counter++] = p_pack->top - 1;
-    AddToPack(p_pack, 6);
-    AddToPack(p_pack, Count((char *)oid, 0));
-    for(int i = 0; i < Count((char *)oid,0); i++){
-        AddToPack(p_pack, oid[i]);
+    return result;
+}
+////////////////////////////////////////
+pack_t* PackSequence(unsigned char token, int num,...){
+    pack_t *result = InitPack(), *buffer = InitPack();
+    va_list argptr;
+    va_start(argptr,num);
+    for( ;num; num--){
+        pack_t *ptr = va_arg(argptr, pack_t*);
+        for(unsigned char i = 0; i < ptr->top; i++){
+            AddToPack(buffer, ptr->bytes[i]);
+        }
     }
-    AddToPack(p_pack, 5);
-    AddToPack(p_pack, 0);
-    for(int i = 0; i < 4; i++){
-        p_pack->bytes[sizes_[i]] = p_pack->top - 1 - sizes_[i];
+    AddToPack(result, token);
+    AddToPack(result, buffer->top);
+    for(int i = 0; i < buffer->top; i++) AddToPack(result,buffer->bytes[i]);
+    return result;
+}
+////////////////////////////////////////
+pack_t* PackNull(){
+    pack_t *pack = InitPack();
+    AddToPack(pack, 5);
+    AddToPack(pack, 0);
+    return pack;
+}
+////////////////////////////////////////
+pack_t* PackOid(char *p_oid){
+    pack_t *packedOid = InitPack();
+    unsigned char *refinedOid = RefineOid(p_oid);
+    AddToPack(packedOid, 6);
+    AddToPack(packedOid, Count(refinedOid, 0));
+    for(unsigned char i = 0; i < Count(refinedOid,0); i++ ){
+        AddToPack(packedOid, refinedOid[i]);
     }
-    free(oid);
-    return p_pack;
+    return packedOid;
+}
+////////////////////////////////////////
+pack_t* PackOctString(char *p_value){
+    pack_t *result = InitPack();
+    unsigned char length = Count(p_value,0);
+    AddToPack(result, 4);
+    AddToPack(result, length);
+    for(unsigned char i = 0; i < length;i++) AddToPack(result, p_value[i]);
+    return result;
+}
+////////////////////////////////////////
+pack_t* PackSNMPGetRequest(char *community, char* oid){
+    return PackSequence(48, 3, PackInt(0), PackOctString(community), PackSequence(160, 4, PackInt(1), PackInt(0), PackInt(0),PackSequence(48, 1, PackSequence(48, 2, PackOid(oid), PackNull()))));
 }
 ////////////////////////////////////////
 void AddToPack(pack_t *p_pack, unsigned char p_byte){
@@ -127,7 +151,7 @@ void AddToPack(pack_t *p_pack, unsigned char p_byte){
 }
 ////////////////////////////////////////
 void Resize(pack_t *p_pack){
-    p_pack->bytes = realloc(p_pack->bytes, (p_pack->length + ADDSIZE));
+    p_pack->bytes = realloc(p_pack->bytes, (p_pack->length + ADDSIZE) * sizeof(unsigned char));
     p_pack->length = p_pack->length + ADDSIZE;
 }
 ////////////////////////////////////////
@@ -144,7 +168,6 @@ unsigned char* RefineOid(char *p_oid){
     char *input = malloc(256 * sizeof(char));
     strcpy(input, p_oid);
     unsigned char *buffer = malloc( 256 * sizeof(void) );
-    
     int i = 0;
     for(; Count(input,0) ; i++){
         if(i == 0){
@@ -153,8 +176,7 @@ unsigned char* RefineOid(char *p_oid){
             if(temp[0] == 1 && temp[1] == 3 ){
                 memmove(input, input + 4, Count(input,0) - 3);
                 buffer[i] = 43;
-            }
-            
+            }            
         } else {
             sscanf(input,"%hhu.",&buffer[i]);
             unsigned char step = Count(input, '.') + 1;
@@ -216,16 +238,12 @@ pack_t* Request(int socket, char *address, pack_t *p_pack ){
     return response;
 }
 ///////////////////////////////////////
-unsigned char GetDataIndex(pack_t *p_pack){
-    return 6 + p_pack->bytes[3] + p_pack->bytes[5 + p_pack->bytes[3]];
-}
-///////////////////////////////////////
 unsigned char GetRespIndex(pack_t *p_pack){
-    unsigned char offset = GetDataIndex( p_pack ), 
+    unsigned char offset    = 3 + p_pack->bytes[3] + 2 + p_pack->bytes[3 + p_pack->bytes[3] + 2] + 1, 
     response_id_length      = p_pack->bytes[offset + 3], 
     error_status_length     = p_pack->bytes[offset + 3 + response_id_length + 2],
     error_index_length      = p_pack->bytes[offset + 3 + response_id_length + 2 + error_status_length + 2],
-    response_oid_length     = p_pack->bytes[offset + 3 + response_id_length + 2 + error_status_length + 2 + error_index_length + 6],
-    response_value_length   = p_pack->bytes[offset + 3 + response_id_length + 2 + error_status_length + 2 + error_index_length + 6 + response_oid_length + 2];
+    response_oid_length     = p_pack->bytes[offset + 3 + response_id_length + 2 + error_status_length + 2 + error_index_length + 6];
+    //response_value_length   = p_pack->bytes[offset + 3 + response_id_length + 2 + error_status_length + 2 + error_index_length + 6 + response_oid_length + 2];
     return offset + 3 + response_id_length + 2 + error_status_length + 2 + error_index_length + 6 + response_oid_length + 3; 
 }
