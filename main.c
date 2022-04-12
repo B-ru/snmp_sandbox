@@ -98,17 +98,17 @@ pack_t* PackInt(unsigned int p_value){
     return result;
 }
 ////////////////////////////////////////
-pack_t* PackSequence(unsigned char token, int num,...){
+pack_t* PackSequence(unsigned char p_token, int p_num,...){
     pack_t *result = InitPack(), *buffer = InitPack();
     va_list argptr;
     va_start(argptr,num);
-    for( ;num; num--){
+    for( ;p_num; p_num--){
         pack_t *ptr = va_arg(argptr, pack_t*);
         for(unsigned char i = 0; i < ptr->top; i++){
             AddToPack(buffer, ptr->bytes[i]);
         }
     }
-    AddToPack(result, token);
+    AddToPack(result, p_token);
     AddToPack(result, buffer->top);
     for(int i = 0; i < buffer->top; i++) AddToPack(result,buffer->bytes[i]);
     return result;
@@ -141,12 +141,12 @@ pack_t* PackOctString(char *p_value){
     return result;
 }
 ////////////////////////////////////////
-pack_t* PackSNMPGetRequest(char *community, char* oid){
+pack_t* PackSNMPGetRequest(char *p_community, char* p_oid){
     return PackSequence(
-        SEQUENCE, 3, PackInt(VERSION), PackOctString(community), PackSequence(
+        SEQUENCE, 3, PackInt(VERSION), PackOctString(p_community), PackSequence(
             PDU_GET_REQUEST, 4, PackInt(1), PackInt(ERROR_STATUS), PackInt(ERROR_INDEX),PackSequence(
                 SEQUENCE, 1, PackSequence(
-                    SEQUENCE, 2, PackOid(oid), PackNull()
+                    SEQUENCE, 2, PackOid(p_oid), PackNull()
                 )
             )
         )
@@ -233,20 +233,20 @@ int CreateSocket(){
     }
 }
 ////////////////////////////////////////
-pack_t* Request(int socket, char *address, pack_t *p_pack ){
+pack_t* Request(int p_socket, char *p_address, pack_t *p_pack ){
     unsigned char *buffer = malloc( 256 * sizeof(unsigned char));
     unsigned int n,length;
     struct sockaddr_in addr;
     addr.sin_family = AF_INET;
     addr.sin_port = htons(PORT);
-    addr.sin_addr.s_addr = inet_addr(address);
-    sendto(socket, (const char *)p_pack->bytes, p_pack->top , MSG_CONFIRM, (const struct sockaddr *) &addr, sizeof(addr));
-    n = recvfrom(socket, buffer, MAXLINE, MSG_WAITALL,(struct sockaddr *) &addr, &length);
+    addr.sin_addr.s_addr = inet_addr(p_address);
+    sendto(p_socket, (const char *)p_pack->bytes, p_pack->top , MSG_CONFIRM, (const struct sockaddr *) &addr, sizeof(addr));
+    n = recvfrom(p_socket, buffer, MAXLINE, MSG_WAITALL,(struct sockaddr *) &addr, &length);
     pack_t *response = InitPack();
     for(int i = 0; i < n; i++){
         AddToPack(response, (unsigned char)buffer[i] );
     }
-    close(socket);
+    close(p_socket);
     return response;
 }
 ///////////////////////////////////////
