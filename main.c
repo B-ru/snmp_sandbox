@@ -4,6 +4,11 @@
 #include <stdarg.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#define VERSION 0
+#define ERROR_STATUS 0
+#define ERROR_INDEX 0
+#define SEQUENCE 48
+#define PDU_GET_REQUEST 160
 #define INITSIZE 8
 #define ADDSIZE  8
 #define PORT    161
@@ -41,13 +46,12 @@ pack_t*         PackSNMPGetRequest(char*, char*);
 
 int main( int argc, char* argv[]){
     pack_t *request = InitPack(), *response = InitPack();
-    int socket = NULL;
     request =  PackSNMPGetRequest(argv[1],argv[2]);
     printf(">> ");
     for(int i = 0; i < request->top; i++) printf("%02X ", request->bytes[i]);
     printf("\n<< ");
     WriteToBin(request, "request.bin");
-    socket = CreateSocket();
+    int socket = CreateSocket();
     response = Request(socket, argv[3], request);
     for(int i = 0; i < response->top; i++) printf("%02X ", response->bytes[i]);
     printf("\n");
@@ -81,7 +85,7 @@ pack_t* InitPack(){
 pack_t* PackInt(unsigned int p_value){
     pack_t *result = InitPack();
     unsigned char byte_counter = 0;
-    unsigned char *ptr = &p_value;
+    //unsigned char *ptr = (unsigned char *)&p_value;
     if(p_value & 4278190080)                byte_counter = 4;
     else if (p_value & 16711680)            byte_counter = 3;
     else if (p_value & 65280)               byte_counter = 2;
@@ -89,7 +93,7 @@ pack_t* PackInt(unsigned int p_value){
     AddToPack(result, 2);
     AddToPack(result, byte_counter & 127);
     for(unsigned char i = 0; i < byte_counter; i++){
-        AddToPack(result, *(ptr - i - 1 + byte_counter));
+        AddToPack(result, *((unsigned char *)&p_value - i - 1 + byte_counter));
     }
     return result;
 }
@@ -138,7 +142,15 @@ pack_t* PackOctString(char *p_value){
 }
 ////////////////////////////////////////
 pack_t* PackSNMPGetRequest(char *community, char* oid){
-    return PackSequence(48, 3, PackInt(0), PackOctString(community), PackSequence(160, 4, PackInt(1), PackInt(0), PackInt(0),PackSequence(48, 1, PackSequence(48, 2, PackOid(oid), PackNull()))));
+    return PackSequence(
+        SEQUENCE, 3, PackInt(VERSION), PackOctString(community), PackSequence(
+            PDU_GET_REQUEST, 4, PackInt(1), PackInt(ERROR_STATUS), PackInt(ERROR_INDEX),PackSequence(
+                SEQUENCE, 1, PackSequence(
+                    SEQUENCE, 2, PackOid(oid), PackNull()
+                )
+            )
+        )
+    );
 }
 ////////////////////////////////////////
 void AddToPack(pack_t *p_pack, unsigned char p_byte){
@@ -239,6 +251,7 @@ pack_t* Request(int socket, char *address, pack_t *p_pack ){
 }
 ///////////////////////////////////////
 unsigned char GetRespIndex(pack_t *p_pack){
+//TODO: de-serialize pack in correct way
     unsigned char offset    = 3 + p_pack->bytes[3] + 2 + p_pack->bytes[3 + p_pack->bytes[3] + 2] + 1, 
     response_id_length      = p_pack->bytes[offset + 3], 
     error_status_length     = p_pack->bytes[offset + 3 + response_id_length + 2],
