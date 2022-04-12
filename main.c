@@ -1,3 +1,7 @@
+/*
+    This programm works with single response pattern yet.
+    This pattern hardcoded and meant to use with octet-string-type responses.
+*/ 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -31,7 +35,6 @@ void            Resize(pack_t*);
 unsigned char   Count(char*, char);
 unsigned char*  RefineOid(char*);
 void            PrintPack(pack_t *);
-void            PrintOid(unsigned char *);
 void            WriteToBin(pack_t *, const char* );
 int             CreateSocket();
 pack_t*         Request(int, char *, pack_t *);
@@ -46,15 +49,12 @@ pack_t*         PackSNMPGetRequest(char*, char*);
 
 int main( int argc, char* argv[]){
     pack_t *request = InitPack(), *response = InitPack();
-    request =  PackSNMPGetRequest(argv[1],argv[2]);
-    printf(">> ");
-    for(int i = 0; i < request->top; i++) printf("%02X ", request->bytes[i]);
-    printf("\n<< ");
-    WriteToBin(request, "request.bin");
     int socket = CreateSocket();
+    request =  PackSNMPGetRequest(argv[1],argv[2]);
+    PrintPack(request);
+    WriteToBin(request, "request.bin");
     response = Request(socket, argv[3], request);
-    for(int i = 0; i < response->top; i++) printf("%02X ", response->bytes[i]);
-    printf("\n");
+    PrintPack(response);
     for(int i = GetRespIndex(response); i < response->top; i++) printf("%c", response->bytes[i]);
     printf("\n");
     return 0;
@@ -85,7 +85,6 @@ pack_t* InitPack(){
 pack_t* PackInt(unsigned int p_value){
     pack_t *result = InitPack();
     unsigned char byte_counter = 0;
-    //unsigned char *ptr = (unsigned char *)&p_value;
     if(p_value & 4278190080)                byte_counter = 4;
     else if (p_value & 16711680)            byte_counter = 3;
     else if (p_value & 65280)               byte_counter = 2;
@@ -101,7 +100,7 @@ pack_t* PackInt(unsigned int p_value){
 pack_t* PackSequence(unsigned char p_token, int p_num,...){
     pack_t *result = InitPack(), *buffer = InitPack();
     va_list argptr;
-    va_start(argptr,num);
+    va_start(argptr,p_num);
     for( ;p_num; p_num--){
         pack_t *ptr = va_arg(argptr, pack_t*);
         for(unsigned char i = 0; i < ptr->top; i++){
@@ -206,10 +205,6 @@ void PrintPack(pack_t *p_pack){
     printf("\n");
 }
 ////////////////////////////////////////
-void PrintOid(unsigned char *p_oid){
-    printf("%u\n", Count((char*)p_oid, 0));
-}
-////////////////////////////////////////
 void WriteToBin(pack_t *p_pack, const char *p_filename){
     FILE *outfile = NULL;
     outfile = fopen(p_filename, "wb");
@@ -251,7 +246,7 @@ pack_t* Request(int p_socket, char *p_address, pack_t *p_pack ){
 }
 ///////////////////////////////////////
 unsigned char GetRespIndex(pack_t *p_pack){
-//TODO: de-serialize pack in correct way
+//TODO: de-serialize pack in correct way for general case
     unsigned char offset    = 3 + p_pack->bytes[3] + 2 + p_pack->bytes[3 + p_pack->bytes[3] + 2] + 1, 
     response_id_length      = p_pack->bytes[offset + 3], 
     error_status_length     = p_pack->bytes[offset + 3 + response_id_length + 2],
