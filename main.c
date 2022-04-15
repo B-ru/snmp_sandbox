@@ -15,6 +15,7 @@
 #define OCTET_STRING 4
 #define NULV 5
 #define OID 6
+#define COUNTER32 65
 #define INITSIZE 8
 #define ADDSIZE  8
 #define PORT    161
@@ -259,6 +260,7 @@ unsigned char* UnPackSequence(pack_t *p_pack){
         for(unsigned int i = 2; i < p_pack->bytes[1] + 2;){
             switch (p_pack->bytes[i]) {
                 case INTEGER:       printf("Integer   : %d\n", UnPackInteger  (RePack( (unsigned char *)p_pack->bytes + i + 2, p_pack->bytes[i+1]     ))); i += (p_pack->bytes[i+1] + 2); break;
+                case COUNTER32:     printf("Counter32 : %d\n", UnPackInteger  (RePack( (unsigned char *)p_pack->bytes + i + 2, p_pack->bytes[i+1]     ))); i += (p_pack->bytes[i+1] + 2); break;
                 case OCTET_STRING:  printf("OctString : %s\n", UnPackOctString(RePack( (unsigned char *)p_pack->bytes + i + 2, p_pack->bytes[i+1]     ))); i += (p_pack->bytes[i+1] + 2); break;
                 case NULV:          i += 2;  break ;
                 case OID:           printf("OID       : %s\n", UnPackOid      (RePack( (unsigned char *)p_pack->bytes + i + 2, p_pack->bytes[i+1]     ))); i += (p_pack->bytes[i+1] + 2); break;
