@@ -265,7 +265,7 @@ unsigned char* UnPackSequence(pack_t *p_pack){
                 case NULV:          i += 2;  break ;
                 case OID:           printf("OID       : %s\n", UnPackOid      (RePack( (unsigned char *)p_pack->bytes + i + 2, p_pack->bytes[i+1]     ))); i += (p_pack->bytes[i+1] + 2); break;
                 case SEQUENCE: case PDU_GET_REQUEST: case PDU_GET_RESPONSE:
-                                    printf("%s",              UnPackSequence (RePack( (unsigned char *)p_pack->bytes + i,     p_pack->bytes[i+1] + 2 ))); i += (p_pack->bytes[i+1] + 2); break;
+                                    printf("%s",              UnPackSequence  (RePack( (unsigned char *)p_pack->bytes + i,     p_pack->bytes[i+1] + 2 ))); i += (p_pack->bytes[i+1] + 2); break;
                 default:    i++;
             }                
         }
