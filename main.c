@@ -55,10 +55,13 @@ pack_t*         RePack(unsigned char *, int);
 ////////////////////////////////////////
 
 int main( int argc, char* argv[]){
+    char* community = argv[1];
+    char* oid       = argv[2];
+    char* address   = argv[3];
     pack_t *request = InitPack(), *response = InitPack();
     int socket = CreateSocket();
-    request =  PackSNMPGetRequest(argv[1],argv[2]);
-    response = Request(socket, argv[3], request);
+    request =  PackSNMPGetRequest(community,oid);
+    response = Request(socket, address, request);
     free(request);
     PrintPack(response);
     UnPackSequence(response);
