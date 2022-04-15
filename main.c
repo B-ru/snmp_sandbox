@@ -1,7 +1,3 @@
-/*
-    This programm works with single response pattern yet.
-    This pattern hardcoded and meant to use with octet-string-type responses.
-*/ 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
