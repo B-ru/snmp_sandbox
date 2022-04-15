@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#include <math.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #define VERSION 0
@@ -13,6 +14,11 @@
 #define ERROR_INDEX 0
 #define SEQUENCE 48
 #define PDU_GET_REQUEST 160
+#define PDU_GET_RESPONSE 162
+#define INTEGER 2
+#define OCTET_STRING 4
+#define NULV 5
+#define OID 6
 #define INITSIZE 8
 #define ADDSIZE  8
 #define PORT    161
@@ -38,25 +44,28 @@ void            PrintPack(pack_t *);
 void            WriteToBin(pack_t *, const char* );
 int             CreateSocket();
 pack_t*         Request(int, char *, pack_t *);
-unsigned char   GetRespIndex(pack_t *);
 pack_t*         PackOid(char *);
 pack_t*         PackNull();
 pack_t*         PackInt(unsigned int);
 pack_t*         PackOctString(char *);
 pack_t*         PackSequence(unsigned char, int num, ...);
 pack_t*         PackSNMPGetRequest(char*, char*);
+unsigned char*  UnPackSequence(pack_t *);
+unsigned int    UnPackInteger(pack_t *);
+unsigned char*  UnPackOctString(pack_t *);
+unsigned char*  UnPackNull(pack_t *);
+unsigned char*  UnPackOid(pack_t *);
+pack_t*         RePack(unsigned char *, int);
 ////////////////////////////////////////
 
 int main( int argc, char* argv[]){
     pack_t *request = InitPack(), *response = InitPack();
     int socket = CreateSocket();
     request =  PackSNMPGetRequest(argv[1],argv[2]);
-    PrintPack(request);
-    WriteToBin(request, "request.bin");
     response = Request(socket, argv[3], request);
+    free(request);
     PrintPack(response);
-    for(int i = GetRespIndex(response); i < response->top; i++) printf("%c", response->bytes[i]);
-    printf("\n");
+    UnPackSequence(response);
     return 0;
 }
 
@@ -244,14 +253,59 @@ pack_t* Request(int p_socket, char *p_address, pack_t *p_pack ){
     close(p_socket);
     return response;
 }
-///////////////////////////////////////
-unsigned char GetRespIndex(pack_t *p_pack){
-//TODO: de-serialize pack in correct way for general case
-    unsigned char offset    = 3 + p_pack->bytes[3] + 2 + p_pack->bytes[3 + p_pack->bytes[3] + 2] + 1, 
-    response_id_length      = p_pack->bytes[offset + 3], 
-    error_status_length     = p_pack->bytes[offset + 3 + response_id_length + 2],
-    error_index_length      = p_pack->bytes[offset + 3 + response_id_length + 2 + error_status_length + 2],
-    response_oid_length     = p_pack->bytes[offset + 3 + response_id_length + 2 + error_status_length + 2 + error_index_length + 6];
-    //response_value_length   = p_pack->bytes[offset + 3 + response_id_length + 2 + error_status_length + 2 + error_index_length + 6 + response_oid_length + 2];
-    return offset + 3 + response_id_length + 2 + error_status_length + 2 + error_index_length + 6 + response_oid_length + 3; 
+////////////////////////////////////////
+unsigned char* UnPackSequence(pack_t *p_pack){
+    unsigned char* result = malloc(256 * sizeof(unsigned char*));
+    if(p_pack->bytes[0] == SEQUENCE ||  p_pack->bytes[0] == PDU_GET_REQUEST || p_pack->bytes[0] == PDU_GET_RESPONSE){
+        for(unsigned int i = 2; i < p_pack->bytes[1] + 2;){
+            switch (p_pack->bytes[i]) {
+                case INTEGER:       printf("Integer   : %d\n", UnPackInteger  (RePack( (unsigned char *)p_pack->bytes + i + 2, p_pack->bytes[i+1]     ))); i += (p_pack->bytes[i+1] + 2); break;
+                case OCTET_STRING:  printf("OctString : %s\n", UnPackOctString(RePack( (unsigned char *)p_pack->bytes + i + 2, p_pack->bytes[i+1]     ))); i += (p_pack->bytes[i+1] + 2); break;
+                case NULV:          i += 2;  break ;
+                case OID:           printf("OID       : %s\n", UnPackOid      (RePack( (unsigned char *)p_pack->bytes + i + 2, p_pack->bytes[i+1]     ))); i += (p_pack->bytes[i+1] + 2); break;
+                case SEQUENCE: case PDU_GET_REQUEST: case PDU_GET_RESPONSE:
+                                    printf("%s",              UnPackSequence (RePack( (unsigned char *)p_pack->bytes + i,     p_pack->bytes[i+1] + 2 ))); i += (p_pack->bytes[i+1] + 2); break;
+                default:    i++;
+            }                
+        }
+    }
+    return result;
+}
+////////////////////////////////////////
+unsigned int  UnPackInteger(pack_t *p_pack){
+    int res = 0;
+    for(int i = p_pack->top, k = 0; i > 0 ; i--, k++){
+        res += pow( 256,k ) * p_pack->bytes[i-1];
+    }
+    return res;
+}
+////////////////////////////////////////
+unsigned char* UnPackOctString(pack_t *p_pack){
+    unsigned char* result = malloc( 256*sizeof(unsigned char)  );
+    for(int i = 0; i < p_pack->top; i++) result[i] = p_pack->bytes[i];
+    return result;
+}
+////////////////////////////////////////
+unsigned char* UnPackNull(pack_t *p_pack){    
+    return NULL;
+}
+////////////////////////////////////////
+unsigned char* UnPackOid(pack_t *p_pack){    
+    unsigned char* result = malloc( 256*sizeof(unsigned char)  );
+    for(int i = 0; i < p_pack->top; i++) 
+        sprintf(
+            result + strlen(result), 
+            i == 0 && p_pack->bytes[i] == 43?"%s.":i == (p_pack->top - 1)?"%d":"%d.",
+            i == 0 && p_pack->bytes[i] == 43?"1.3":p_pack->bytes[i]
+        );
+    return result;
+
+}
+////////////////////////////////////////
+pack_t* RePack(unsigned char *p_ptr, int p_length){
+    pack_t *result = InitPack();
+    for(int i = 0; i < p_length; i++){
+        AddToPack(result, *(p_ptr+i));
+    }
+    return result;
 }
