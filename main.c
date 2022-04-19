@@ -6,11 +6,11 @@ int main( int argc, char* argv[]){
     char* oid       = argv[2];
     char* address   = argv[3];
     pack_t *request = InitPack(), *response = InitPack();
-    int socket = CreateSocket();
     request =  PackSNMPGetRequest(community,oid);
-    response = Request(socket, address, request);
+    response = Request(CreateSocket(), address, request);
     free(request);
     PrintPack(response);
     UnPackSequence(response);
+    free(response);
     return 0;
 }
