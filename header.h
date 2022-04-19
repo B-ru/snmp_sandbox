@@ -6,6 +6,7 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #define VERSION 0
+#define REQUESTID 1
 #define ERROR_STATUS 0
 #define ERROR_INDEX 0
 #define SEQUENCE 48
@@ -37,6 +38,7 @@ typedef struct{
 pack_t*         InitPack();
 void            AddToPack(pack_t *, unsigned char);
 void            Resize(pack_t*);
+void            Truncate(pack_t*);
 unsigned char   Count(char*, char);
 unsigned char*  RefineOid(char*);
 void            PrintPack(pack_t *);
@@ -138,7 +140,7 @@ pack_t* PackOctString(char *p_value){
 pack_t* PackSNMPGetRequest(char *p_community, char* p_oid){
     return PackSequence(
         SEQUENCE, 3, PackInt(VERSION), PackOctString(p_community), PackSequence(
-            PDU_GET_REQUEST, 4, PackInt(1), PackInt(ERROR_STATUS), PackInt(ERROR_INDEX),PackSequence(
+            PDU_GET_REQUEST, 4, PackInt(REQUESTID), PackInt(ERROR_STATUS), PackInt(ERROR_INDEX),PackSequence(
                 SEQUENCE, 1, PackSequence(
                     SEQUENCE, 2, PackOid(p_oid), PackNull()
                 )
@@ -163,6 +165,15 @@ void AddToPack(pack_t *p_pack, unsigned char p_byte){
 void Resize(pack_t *p_pack){
     BYTES = realloc(BYTES, (p_pack->length + ADDSIZE) * sizeof(unsigned char));
     p_pack->length = p_pack->length + ADDSIZE;
+}
+////////////////////////////////////////
+void Truncate(pack_t *p_pack){
+    if(p_pack->length > p_pack->top){
+        BYTES = realloc(BYTES, p_pack->top * sizeof(unsigned char));
+        p_pack->length = p_pack->top;
+    } else if(p_pack->length < p_pack->top){
+        exit(OVERFLOW);
+    }
 }
 ////////////////////////////////////////
 unsigned char Count(char *p_string, char p_c){
@@ -298,5 +309,6 @@ pack_t* RePack(unsigned char *p_ptr, int p_length){
     for(int i = 0; i < p_length; i++){
         AddToPack(result, *(p_ptr+i));
     }
+    Truncate(result);
     return result;
 }
