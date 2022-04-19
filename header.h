@@ -54,7 +54,6 @@ pack_t*         PackSNMPGetRequest(char*, char*);
 unsigned char*  UnPackSequence(pack_t *);
 unsigned int    UnPackInteger(pack_t *);
 unsigned char*  UnPackOctString(pack_t *);
-unsigned char*  UnPackNull(pack_t *);
 unsigned char*  UnPackOid(pack_t *);
 pack_t*         RePack(unsigned char *, int);
 ////////////////////////////////////////
@@ -286,10 +285,6 @@ unsigned char* UnPackOctString(pack_t *p_pack){
     unsigned char* result = malloc( 256*sizeof(unsigned char)  );
     for(int i = 0; i < p_pack->top; i++) result[i] = BYTES[i];
     return result;
-}
-////////////////////////////////////////
-unsigned char* UnPackNull(pack_t *p_pack){    
-    return NULL;
 }
 ////////////////////////////////////////
 unsigned char* UnPackOid(pack_t *p_pack){    
