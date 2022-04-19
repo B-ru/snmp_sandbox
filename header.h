@@ -27,6 +27,7 @@
 #define OUTOFMEMORY -102
 #define FILE_IO_ERROR -103
 #define SOCKET_ERROR -104
+#define SEQUENCE_ERROR -105
 #define BYTES p_pack->bytes
 ///////////////////////////////////////
 typedef struct{
@@ -185,26 +186,30 @@ unsigned char Count(char *p_string, char p_c){
 }
 ////////////////////////////////////////
 unsigned char* RefineOid(char *p_oid){
-    char *input = malloc(256 * sizeof(char));
-    strcpy(input, p_oid);
-    unsigned char *buffer = malloc( 256 * sizeof(void) );
+    unsigned int length = Count(p_oid, 0);
+    unsigned char *inputbuffer = malloc( 256 * sizeof(unsigned char) ),
+                  *result      = malloc( 256 * sizeof(unsigned char) );
+    strcpy(inputbuffer,p_oid);
+    if(p_oid[length-1] != '.'){
+        inputbuffer[length] = '.';
+    }
     int i = 0;
-    for(; Count(input,0) ; i++){
+    for(; Count(inputbuffer,0) ; i++){
         if(i == 0){
             unsigned char temp[2];
-            sscanf(input, "%hhu.%hhu.", &temp[0],&temp[1]);
+            sscanf(inputbuffer, "%hhu.%hhu.", &temp[0],&temp[1]);
             if(temp[0] == 1 && temp[1] == 3 ){
-                memmove(input, input + 4, Count(input,0) - 3);
-                buffer[i] = 43;
+                memmove(inputbuffer, inputbuffer + 4, Count(inputbuffer,0) - 3);
+                result[i] = 43;
             }            
         } else {
-            sscanf(input,"%hhu.",&buffer[i]);
-            unsigned char step = Count(input, '.') + 1;
-            memmove(input,input + step,Count(input,0) - step + 1);
+            sscanf(inputbuffer,"%hhu.",&result[i]);
+            unsigned char step = Count(inputbuffer, '.') + 1;
+            memmove(inputbuffer,inputbuffer + step,Count(inputbuffer,0) - step + 1);
         }
     }
-    buffer[++i] = 0;
-    return buffer;
+    free(inputbuffer);
+    return result;
 }
 ////////////////////////////////////////
 void PrintPack(pack_t *p_pack){
@@ -256,21 +261,29 @@ pack_t* Request(int p_socket, char *p_address, pack_t *p_pack ){
 ////////////////////////////////////////
 unsigned char* UnPackSequence(pack_t *p_pack){
     unsigned char* result = malloc(256 * sizeof(unsigned char*));
-    if(p_pack->bytes[0] == SEQUENCE ||  p_pack->bytes[0] == PDU_GET_REQUEST || p_pack->bytes[0] == PDU_GET_RESPONSE){
+    if(BYTES[0] == SEQUENCE ||  BYTES[0] == PDU_GET_REQUEST || BYTES[0] == PDU_GET_RESPONSE){
         for(unsigned int i = 2; i < p_pack->bytes[1] + 2;){
             switch (BYTES[i]) {
-                case INTEGER:       printf("Integer   : %d\n", UnPackInteger  (RePack( (unsigned char *)BYTES + i + 2, BYTES[i+1]     ))); i += (BYTES[i+1] + 2); break;
-                case COUNTER32:     printf("Counter32 : %d\n", UnPackInteger  (RePack( (unsigned char *)BYTES + i + 2, BYTES[i+1]     ))); i += (BYTES[i+1] + 2); break;
-                case OCTET_STRING:  printf("OctString : %s\n", UnPackOctString(RePack( (unsigned char *)BYTES + i + 2, BYTES[i+1]     ))); i += (BYTES[i+1] + 2); break;
-                case NULV:          i += 2;  break ;
-                case OID:           printf("OID       : %s\n", UnPackOid      (RePack( (unsigned char *)BYTES + i + 2, BYTES[i+1]     ))); i += (BYTES[i+1] + 2); break;
+                case INTEGER:
+                    printf("Integer   : %d\n", UnPackInteger  (RePack( (unsigned char *)BYTES + i + 2, BYTES[i+1]     ))); i += (BYTES[i+1] + 2); break;
+                case COUNTER32:
+                    printf("Counter32 : %d\n", UnPackInteger  (RePack( (unsigned char *)BYTES + i + 2, BYTES[i+1]     ))); i += (BYTES[i+1] + 2); break;
+                case OCTET_STRING:
+                    printf("OctString : %s\n", UnPackOctString(RePack( (unsigned char *)BYTES + i + 2, BYTES[i+1]     ))); i += (BYTES[i+1] + 2); break;
+                case OID:
+                    printf("OID       : %s\n", UnPackOid      (RePack( (unsigned char *)BYTES + i + 2, BYTES[i+1]     ))); i += (BYTES[i+1] + 2); break;
                 case SEQUENCE: case PDU_GET_REQUEST: case PDU_GET_RESPONSE:
-                                    printf("%s",               UnPackSequence (RePack( (unsigned char *)BYTES + i,     BYTES[i+1] + 2 ))); i += (BYTES[i+1] + 2); break;
-                default:    i++;
+                    printf("%s",               UnPackSequence (RePack( (unsigned char *)BYTES + i,     BYTES[i+1] + 2 ))); i += (BYTES[i+1] + 2); break;
+                case NULV:
+                    i += 2;  break ;
+                default:
+                    i++;
             }                
         }
+        return result;
+    } else {
+        exit(SEQUENCE_ERROR);
     }
-    return result;
 }
 ////////////////////////////////////////
 unsigned int  UnPackInteger(pack_t *p_pack){
