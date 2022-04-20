@@ -5,6 +5,8 @@
 #include <math.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#define INITSIZE 8
+#define ADDSIZE  8
 #define VERSION 0
 #define REQUESTID 1
 #define ERROR_STATUS 0
@@ -18,8 +20,6 @@
 #define OID 6
 #define COUNTER32 65
 #define ISO 43
-#define INITSIZE 8
-#define ADDSIZE  8
 #define PORT    161
 #define MAXLINE 1024
 #define OVERFLOW -100
@@ -43,7 +43,7 @@ void            Truncate(pack_t*);
 unsigned char   Count(char*, char);
 unsigned char*  RefineOid(char*);
 void            PrintPack(pack_t *);
-void            WriteToBin(pack_t *, const char* );
+void            WriteToBinFile(pack_t *, const char* );
 int             CreateSocket();
 pack_t*         Request(int, char *, pack_t *);
 pack_t*         PackOid(char *);
@@ -57,6 +57,7 @@ unsigned int    UnPackInteger(pack_t *);
 unsigned char*  UnPackOctString(pack_t *);
 unsigned char*  UnPackOid(pack_t *);
 pack_t*         RePack(unsigned char *, int);
+unsigned char*  PrepareOctString(unsigned char*);
 ////////////////////////////////////////
 pack_t* InitPack(){
     pack_t *p_pack = NULL;
@@ -74,11 +75,6 @@ pack_t* InitPack(){
     return p_pack;
 }
 ////////////////////////////////////////
-/*  Length: 3 ways to encode it
-            7 6 5 4 3 2 1 0
-    short   0 [---length--]     * will implement this first
-    long    1 [len-of-len-]
-    indef   0 0 0 0 0 0 0 0     -- value ends with 2 NULL bytes  */
 pack_t* PackInt(unsigned int p_value){
     pack_t *result = InitPack();
     unsigned char byte_counter = 0;
@@ -86,7 +82,7 @@ pack_t* PackInt(unsigned int p_value){
     else if (p_value & 16711680)            byte_counter = 3;
     else if (p_value & 65280)               byte_counter = 2;
     else if (p_value & 255 || p_value == 0) byte_counter = 1;
-    AddToPack(result, 2);
+    AddToPack(result, INTEGER);
     AddToPack(result, byte_counter & 127);
     for(unsigned char i = 0; i < byte_counter; i++){
         AddToPack(result, *((unsigned char *)&p_value - i - 1 + byte_counter));
@@ -112,7 +108,7 @@ pack_t* PackSequence(unsigned char p_token, int p_num,...){
 ////////////////////////////////////////
 pack_t* PackNull(){
     pack_t *pack = InitPack();
-    AddToPack(pack, 5);
+    AddToPack(pack, NULV);
     AddToPack(pack, 0);
     return pack;
 }
@@ -120,7 +116,7 @@ pack_t* PackNull(){
 pack_t* PackOid(char *p_oid){
     pack_t *packedOid = InitPack();
     unsigned char *refinedOid = RefineOid(p_oid);
-    AddToPack(packedOid, 6);
+    AddToPack(packedOid, OID);
     AddToPack(packedOid, Count(refinedOid, 0));
     for(unsigned char i = 0; i < Count(refinedOid,0); i++ ){
         AddToPack(packedOid, refinedOid[i]);
@@ -131,7 +127,7 @@ pack_t* PackOid(char *p_oid){
 pack_t* PackOctString(char *p_value){
     pack_t *result = InitPack();
     unsigned char length = Count(p_value,0);
-    AddToPack(result, 4);
+    AddToPack(result, OCTET_STRING);
     AddToPack(result, length);
     for(unsigned char i = 0; i < length;i++) AddToPack(result, p_value[i]);
     return result;
@@ -140,7 +136,7 @@ pack_t* PackOctString(char *p_value){
 pack_t* PackSNMPGetRequest(char *p_community, char* p_oid){
     return PackSequence(
         SEQUENCE, 3, PackInt(VERSION), PackOctString(p_community), PackSequence(
-            PDU_GET_REQUEST, 4, PackInt(REQUESTID), PackInt(ERROR_STATUS), PackInt(ERROR_INDEX),PackSequence(
+            PDU_GET_REQUEST, 4, PackInt(REQUESTID), PackInt(ERROR_STATUS), PackInt(ERROR_INDEX), PackSequence(
                 SEQUENCE, 1, PackSequence(
                     SEQUENCE, 2, PackOid(p_oid), PackNull()
                 )
@@ -187,13 +183,10 @@ unsigned char Count(char *p_string, char p_c){
 ////////////////////////////////////////
 unsigned char* RefineOid(char *p_oid){
     unsigned int length = Count(p_oid, 0);
-    unsigned char *inputbuffer = malloc( 256 * sizeof(unsigned char) ),
-                  *result      = malloc( 256 * sizeof(unsigned char) );
-    strcpy(inputbuffer,p_oid);
-    if(p_oid[length-1] != '.'){
-        inputbuffer[length] = '.';
-    }
+    unsigned char *inputbuffer = malloc(256 * sizeof(unsigned char)),
+                  *result      = malloc(256 * sizeof(unsigned char));
     int i = 0;
+    inputbuffer = PrepareOctString(p_oid);
     for(; Count(inputbuffer,0) ; i++){
         if(i == 0){
             unsigned char temp[2];
@@ -212,6 +205,17 @@ unsigned char* RefineOid(char *p_oid){
     return result;
 }
 ////////////////////////////////////////
+unsigned char *PrepareOctString(unsigned char *p_string){
+    unsigned char *result = malloc(256 * sizeof(unsigned char));
+    unsigned char ptr_shift = 0;
+    if(p_string[0] == '.') ptr_shift = 1;
+    strcpy(result, p_string + ptr_shift);
+    if(p_string[strlen(p_string) - 1] != '.'){
+        sprintf(result + strlen(result),"%c", '.');
+    }
+    return result;
+}
+////////////////////////////////////////
 void PrintPack(pack_t *p_pack){
     for(int i = 0; i < p_pack->top; i++ ){
         printf("%02x ", p_pack->bytes[i]);
@@ -219,7 +223,7 @@ void PrintPack(pack_t *p_pack){
     printf("\n");
 }
 ////////////////////////////////////////
-void WriteToBin(pack_t *p_pack, const char *p_filename){
+void WriteToBinFile(pack_t *p_pack, const char *p_filename){
     FILE *outfile = NULL;
     outfile = fopen(p_filename, "wb");
     if(outfile == NULL){
@@ -243,13 +247,13 @@ int CreateSocket(){
 }
 ////////////////////////////////////////
 pack_t* Request(int p_socket, char *p_address, pack_t *p_pack ){
-    unsigned char *buffer = malloc( 256 * sizeof(unsigned char));
+    unsigned char *buffer = malloc(256 * sizeof(unsigned char));
     unsigned int n,length;
     struct sockaddr_in addr;
     addr.sin_family = AF_INET;
     addr.sin_port = htons(PORT);
     addr.sin_addr.s_addr = inet_addr(p_address);
-    sendto(p_socket, (const char *)BYTES, p_pack->top , MSG_CONFIRM, (const struct sockaddr *) &addr, sizeof(addr));
+    sendto(p_socket, (const char *)BYTES, p_pack->top, MSG_CONFIRM, (const struct sockaddr *) &addr, sizeof(addr));
     n = recvfrom(p_socket, buffer, MAXLINE, MSG_WAITALL,(struct sockaddr *) &addr, &length);
     pack_t *response = InitPack();
     for(int i = 0; i < n; i++){
@@ -260,20 +264,22 @@ pack_t* Request(int p_socket, char *p_address, pack_t *p_pack ){
 }
 ////////////////////////////////////////
 unsigned char* UnPackSequence(pack_t *p_pack){
-    unsigned char* result = malloc(256 * sizeof(unsigned char*));
+    unsigned char* result = malloc(256 * sizeof(unsigned char));
     if(BYTES[0] == SEQUENCE ||  BYTES[0] == PDU_GET_REQUEST || BYTES[0] == PDU_GET_RESPONSE){
         for(unsigned int i = 2; i < p_pack->bytes[1] + 2;){
             switch (BYTES[i]) {
                 case INTEGER:
-                    printf("Integer   : %d\n", UnPackInteger  (RePack( (unsigned char *)BYTES + i + 2, BYTES[i+1]     ))); i += (BYTES[i+1] + 2); break;
+                    printf("Integer   : %d\n", UnPackInteger  (RePack((unsigned char *)BYTES + i, BYTES[i+1] + 2))); i += (BYTES[i+1] + 2); break;
                 case COUNTER32:
-                    printf("Counter32 : %d\n", UnPackInteger  (RePack( (unsigned char *)BYTES + i + 2, BYTES[i+1]     ))); i += (BYTES[i+1] + 2); break;
+                    printf("Counter32 : %d\n", UnPackInteger  (RePack((unsigned char *)BYTES + i, BYTES[i+1] + 2))); i += (BYTES[i+1] + 2); break;
                 case OCTET_STRING:
-                    printf("OctString : %s\n", UnPackOctString(RePack( (unsigned char *)BYTES + i + 2, BYTES[i+1]     ))); i += (BYTES[i+1] + 2); break;
+                    printf("OctString : %s\n", UnPackOctString(RePack((unsigned char *)BYTES + i, BYTES[i+1] + 2))); i += (BYTES[i+1] + 2); break;
                 case OID:
-                    printf("OID       : %s\n", UnPackOid      (RePack( (unsigned char *)BYTES + i + 2, BYTES[i+1]     ))); i += (BYTES[i+1] + 2); break;
-                case SEQUENCE: case PDU_GET_REQUEST: case PDU_GET_RESPONSE:
-                    printf("%s",               UnPackSequence (RePack( (unsigned char *)BYTES + i,     BYTES[i+1] + 2 ))); i += (BYTES[i+1] + 2); break;
+                    printf("OID       : %s\n", UnPackOid      (RePack((unsigned char *)BYTES + i, BYTES[i+1] + 2))); i += (BYTES[i+1] + 2); break;
+                case SEQUENCE:
+                case PDU_GET_REQUEST:
+                case PDU_GET_RESPONSE:
+                    printf("%s",               UnPackSequence (RePack((unsigned char *)BYTES + i, BYTES[i+1] + 2))); i += (BYTES[i+1] + 2); break;
                 case NULV:
                     i += 2;  break ;
                 default:
@@ -287,29 +293,28 @@ unsigned char* UnPackSequence(pack_t *p_pack){
 }
 ////////////////////////////////////////
 unsigned int  UnPackInteger(pack_t *p_pack){
-    int res = 0;
-    for(int i = p_pack->top, k = 0; i > 0 ; i--, k++){
-        res += pow( 256,k ) * BYTES[i-1];
+    int result = 0;
+    for(int i = p_pack->top, k = 0; i > 2 ; i--, k++){
+        result += pow(256, k) * BYTES[i-1];
     }
-    return res;
+    return result;
 }
 ////////////////////////////////////////
 unsigned char* UnPackOctString(pack_t *p_pack){
-    unsigned char* result = malloc( 256*sizeof(unsigned char)  );
-    for(int i = 0; i < p_pack->top; i++) result[i] = BYTES[i];
+    unsigned char* result = malloc(256 * sizeof(unsigned char));
+    for(int i = 2; i < p_pack->top; i++) result[i - 2] = BYTES[i];
     return result;
 }
 ////////////////////////////////////////
 unsigned char* UnPackOid(pack_t *p_pack){    
-    unsigned char* result = malloc( 256*sizeof(unsigned char)  );
-    for(int i = 0; i < p_pack->top; i++) 
+    unsigned char* result = malloc(256 * sizeof(unsigned char));
+    for(int i = 2; i < p_pack->top; i++) 
         sprintf(
             result + strlen(result), 
-            (i == 0 && BYTES[i] == ISO)?"%s.":i == (p_pack->top - 1)?"%u":"%u.",
-            (i == 0 && BYTES[i] == ISO)?"1.3":BYTES[i]
+            (i == 2 && BYTES[i] == ISO)?"%s.":i == (p_pack->top - 1)?"%u":"%u.",
+            (i == 2 && BYTES[i] == ISO)?"1.3":BYTES[i]
         );
     return result;
-
 }
 ////////////////////////////////////////
 pack_t* RePack(unsigned char *p_ptr, int p_length){
